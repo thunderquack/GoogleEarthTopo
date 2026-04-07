@@ -1,6 +1,7 @@
 import math
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -22,6 +23,25 @@ USER_AGENT = os.getenv(
     "GoogleEarthTopo/0.1 (+https://localhost)",
 )
 LOG_REQUESTS = os.getenv("LOG_REQUESTS", "1") != "0"
+LOG_FILE = os.getenv("LOG_FILE", "server.log").strip()
+CLIENT_DISCONNECT_ERRORS = (
+    BrokenPipeError,
+    ConnectionAbortedError,
+    ConnectionResetError,
+)
+LOG_LOCK = threading.Lock()
+
+
+def write_log_line(message):
+    if LOG_REQUESTS:
+        print(message, flush=True)
+
+    if not LOG_FILE:
+        return
+
+    with LOG_LOCK:
+        with open(LOG_FILE, "a", encoding="utf-8") as handle:
+            handle.write(f"{message}\n")
 
 
 def get_base_url(headers):
@@ -212,6 +232,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
 
             status = self._send_text(404, "Not found")
+        except CLIENT_DISCONNECT_ERRORS:
+            status = 499
+        except Exception as exc:
+            status = 500
+            self._log_exception(exc)
+            try:
+                self._send_text(500, "Internal server error")
+            except CLIENT_DISCONNECT_ERRORS:
+                status = 499
         finally:
             self._log_request_line(status, started_at)
 
@@ -277,15 +306,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         return status
 
     def _log_request_line(self, status, started_at):
-        if not LOG_REQUESTS:
-            return
-
         duration_ms = int((time.time() - started_at) * 1000)
         client_ip = self.client_address[0] if self.client_address else "-"
-        print(
-            f"{client_ip} \"{self.command} {self.path}\" {status} {duration_ms}ms",
-            flush=True,
-        )
+        write_log_line(f"{client_ip} \"{self.command} {self.path}\" {status} {duration_ms}ms")
+
+    def _log_exception(self, exc):
+        client_ip = self.client_address[0] if self.client_address else "-"
+        write_log_line(f"{client_ip} ERROR \"{self.command} {self.path}\" {type(exc).__name__}: {exc}")
 
     def log_message(self, format_, *args):
         return
@@ -293,5 +320,5 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer((HOST, PORT), RequestHandler)
-    print(f"Google Earth Topo listening on http://{HOST}:{PORT}")
+    write_log_line(f"Google Earth Topo listening on http://{HOST}:{PORT}")
     server.serve_forever()
