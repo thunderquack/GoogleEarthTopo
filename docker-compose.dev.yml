@@ -1,4 +1,4 @@
 services:
-  google-earth-topo:
+  nginx:
     ports:
       - "9088:80"

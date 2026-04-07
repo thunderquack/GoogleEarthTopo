@@ -15,6 +15,20 @@ services:
       pidor-net:
         aliases:
           - google-earth-topo.pidor.local
+  nginx:
+    image: nginx:1.28-alpine
+    container_name: google-earth-topo-nginx
+    restart: unless-stopped
+    depends_on:
+      - google-earth-topo
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./data/nginx-cache:/var/cache/nginx
+      - ./data/nginx-logs:/var/log/nginx
+    networks:
+      pidor-net:
+        aliases:
+          - google-earth-topo-nginx.pidor.local
 
 networks:
   pidor-net:

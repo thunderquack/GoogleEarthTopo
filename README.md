@@ -4,6 +4,7 @@
 
 - проксирует XYZ-тайлы OpenTopoMap через `/tiles/{z}/{x}/{y}.png`
 - отдает KML SuperOverlay через `/kml/...`, чтобы Google Earth мог загружать тайлы не зная про схему XYZ
+- в docker-режиме работает вместе с `nginx`, который кэширует тайлы на диске
 
 ## Запуск
 
@@ -30,6 +31,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 В dev-режиме сервис будет доступен на `http://localhost:9088/kml/root.kml`.
 
 Логи запросов будут сохраняться в `./data/server.log`.
+Кэш тайлов `nginx` будет храниться в `./data/nginx-cache`, а его логи в `./data/nginx-logs`.
 
 ## Полезные URL
 
@@ -56,4 +58,4 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 - Сервер намеренно без фреймворков, чтобы первый запуск был простым.
 - Адрес bind не настраивается: сервер всегда слушает `0.0.0.0`.
 - По умолчанию используется OpenTopoMap. Официальная схема у сервиса публикуется как `https://{a|b|c}.tile.opentopomap.org/{z}/{x}/{y}.png`; в этом прототипе выбран сервер `a`.
-- Для production имеет смысл добавить локальный кэш тайлов, rate limiting и более аккуратную работу с upstream.
+- В docker-конфигурации кэш тайлов делает соседний `nginx proxy_cache`, поэтому повторные запросы к `/tiles/...` будут в основном обслуживаться с диска.
