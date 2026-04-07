@@ -2,7 +2,7 @@
 
 Минимальный Python-сервер, который:
 
-- проксирует XYZ-тайлы OpenStreetMap через `/tiles/{z}/{x}/{y}.png`
+- проксирует XYZ-тайлы OpenTopoMap через `/tiles/{z}/{x}/{y}.png`
 - отдает KML SuperOverlay через `/kml/...`, чтобы Google Earth мог загружать тайлы не зная про схему XYZ
 
 ## Запуск
@@ -12,6 +12,16 @@ python app.py
 ```
 
 По умолчанию сервер стартует на `http://localhost:9088`.
+
+## Запуск через Docker Compose
+
+```bash
+docker compose up --build -d
+```
+
+После старта сервис будет доступен на `http://localhost:9088`.
+
+Логи запросов будут сохраняться в `./data/server.log`.
 
 ## Полезные URL
 
