@@ -13,6 +13,10 @@ services:
       LOG_FILE: /data/server.log
     volumes:
       - ./data:/data
+    networks:
+      pidor-net:
+        aliases:
+          - google-earth-topo.pidor.local
 
 networks:
   pidor-net:
