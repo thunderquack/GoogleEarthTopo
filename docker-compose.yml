@@ -5,8 +5,6 @@ services:
       dockerfile: Dockerfile
     container_name: google-earth-topo
     restart: unless-stopped
-    ports:
-      - "9088:9088"
     environment:
       HOST: 0.0.0.0
       PORT: 9088
@@ -15,3 +13,8 @@ services:
       LOG_FILE: /data/server.log
     volumes:
       - ./data:/data
+
+networks:
+  pidor-net:
+    external: true
+    name: pidor-net
