@@ -11,12 +11,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "9088"))
-MAX_ZOOM = int(os.getenv("MAX_ZOOM", "14"))
+MAX_ZOOM = int(os.getenv("MAX_ZOOM", "17"))
 MIN_LOD_PIXELS = int(os.getenv("MIN_LOD_PIXELS", "128"))
 MAX_LOD_PIXELS = int(os.getenv("MAX_LOD_PIXELS", "-1"))
 TILE_SOURCE_TEMPLATE = os.getenv(
     "TILE_SOURCE_TEMPLATE",
-    "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
 )
 USER_AGENT = os.getenv(
     "UPSTREAM_USER_AGENT",
