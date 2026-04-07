@@ -14,6 +14,7 @@ services:
       pidor-net:
         aliases:
           - google-earth-topo.pidor.local
+
   nginx:
     image: nginx:1.28-alpine
     container_name: google-earth-topo-nginx
