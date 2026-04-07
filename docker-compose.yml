@@ -7,7 +7,6 @@ services:
     restart: unless-stopped
     environment:
       MAX_ZOOM: 17
-      TILE_SOURCE_TEMPLATE: https://a.tile.opentopomap.org/{z}/{x}/{y}.png
       LOG_FILE: /data/server.log
     volumes:
       - ./data:/data

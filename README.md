@@ -14,6 +14,8 @@ python app.py
 
 По умолчанию сервер стартует на `http://localhost:9088`.
 
+В standalone-режиме Python сам обрабатывает `/tiles/...` и может ходить в upstream тайлов напрямую.
+
 ## Запуск через Docker Compose
 
 ```bash
@@ -21,6 +23,7 @@ docker compose up --build -d
 ```
 
 Основной `docker-compose.yml` не публикует порты наружу. Сервис слушает внутри контейнера `80` и рассчитан на reverse proxy или общую docker-сеть.
+В docker-режиме тайлы `/tiles/...` забирает и кэширует `nginx`; Python в этой схеме нужен для `/kml/...` и других будущих KML-слоев.
 
 ## Запуск через Docker Compose для разработки
 
@@ -42,7 +45,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 
 - `PORT` - порт сервера, по умолчанию `9088`
 - `BASE_URL` - внешний URL сервера; если не задан, определяется из заголовков запроса
-- `TILE_SOURCE_TEMPLATE` - шаблон источника тайлов, по умолчанию `https://a.tile.opentopomap.org/{z}/{x}/{y}.png`
+- `TILE_SOURCE_TEMPLATE` - шаблон источника тайлов для standalone-режима Python, по умолчанию `https://a.tile.opentopomap.org/{z}/{x}/{y}.png`
 - `MAX_ZOOM` - максимальная глубина KML-дерева, по умолчанию `17`
 - `MIN_LOD_PIXELS` - порог детализации для KML Region, по умолчанию `128`
 - `MAX_LOD_PIXELS` - верхний порог детализации для KML Region, по умолчанию `-1`
@@ -58,4 +61,4 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 - Сервер намеренно без фреймворков, чтобы первый запуск был простым.
 - Адрес bind не настраивается: сервер всегда слушает `0.0.0.0`.
 - По умолчанию используется OpenTopoMap. Официальная схема у сервиса публикуется как `https://{a|b|c}.tile.opentopomap.org/{z}/{x}/{y}.png`; в этом прототипе выбран сервер `a`.
-- В docker-конфигурации кэш тайлов делает соседний `nginx proxy_cache`, поэтому повторные запросы к `/tiles/...` будут в основном обслуживаться с диска.
+- В docker-конфигурации источник и кэш тайлов находятся в `nginx proxy_cache`, поэтому `TILE_SOURCE_TEMPLATE` там специально не дублируется.
