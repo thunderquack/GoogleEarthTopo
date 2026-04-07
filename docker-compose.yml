@@ -6,8 +6,6 @@ services:
     container_name: google-earth-topo
     restart: unless-stopped
     environment:
-      HOST: 0.0.0.0
-      PORT: 9088
       MAX_ZOOM: 17
       TILE_SOURCE_TEMPLATE: https://a.tile.opentopomap.org/{z}/{x}/{y}.png
       LOG_FILE: /data/server.log

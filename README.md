@@ -19,7 +19,15 @@ python app.py
 docker compose up --build -d
 ```
 
-После старта сервис будет доступен на `http://localhost:9088`.
+Основной `docker-compose.yml` не публикует порты наружу. Сервис слушает внутри контейнера `80` и рассчитан на reverse proxy или общую docker-сеть.
+
+## Запуск через Docker Compose для разработки
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+```
+
+В dev-режиме сервис будет доступен на `http://localhost:9088/kml/root.kml`.
 
 Логи запросов будут сохраняться в `./data/server.log`.
 
@@ -30,7 +38,6 @@ docker compose up --build -d
 
 ## Переменные окружения
 
-- `HOST` - адрес bind, по умолчанию `0.0.0.0`
 - `PORT` - порт сервера, по умолчанию `9088`
 - `BASE_URL` - внешний URL сервера; если не задан, определяется из заголовков запроса
 - `TILE_SOURCE_TEMPLATE` - шаблон источника тайлов, по умолчанию `https://a.tile.opentopomap.org/{z}/{x}/{y}.png`
@@ -41,11 +48,12 @@ docker compose up --build -d
 ## Как использовать в Google Earth
 
 1. Запустить сервер.
-2. Открыть в Google Earth ссылку `http://localhost:9088/kml/root.kml`.
+2. Открыть в Google Earth ссылку `http://localhost:9088/kml/root.kml` для локального Python-запуска или dev compose. Для обычного Docker Compose используй адрес своего reverse proxy или имя контейнера внутри docker-сети.
 3. Google Earth начнет загружать KML-узлы и соответствующие им PNG-тайлы через ваш сервер.
 
 ## Замечания
 
 - Сервер намеренно без фреймворков, чтобы первый запуск был простым.
+- Адрес bind не настраивается: сервер всегда слушает `0.0.0.0`.
 - По умолчанию используется OpenTopoMap. Официальная схема у сервиса публикуется как `https://{a|b|c}.tile.opentopomap.org/{z}/{x}/{y}.png`; в этом прототипе выбран сервер `a`.
 - Для production имеет смысл добавить локальный кэш тайлов, rate limiting и более аккуратную работу с upstream.

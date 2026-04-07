@@ -4,12 +4,11 @@ WORKDIR /app
 
 COPY app.py /app/app.py
 
-ENV HOST=0.0.0.0
-ENV PORT=9088
+ENV PORT=80
 ENV LOG_FILE=/data/server.log
 
 RUN mkdir -p /data
 
-EXPOSE 9088
+EXPOSE 80
 
 CMD ["python", "app.py"]
