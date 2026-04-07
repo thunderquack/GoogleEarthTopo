@@ -16,7 +16,7 @@ services:
           - google-earth-topo.pidor.local
 
   nginx:
-    image: nginx:1.28-alpine
+    image: nginx:alpine
     container_name: google-earth-topo-nginx
     restart: unless-stopped
     depends_on:
