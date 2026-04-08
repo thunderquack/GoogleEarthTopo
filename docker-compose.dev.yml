@@ -1,4 +1,7 @@
 services:
+  google-earth-topo:
+    environment:
+      PUBLIC_PORT: ${APP_PORT:-9088}
   nginx:
     ports:
-      - "9088:80"
+      - "${APP_PORT:-9088}:80"

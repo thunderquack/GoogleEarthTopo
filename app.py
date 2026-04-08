@@ -10,10 +10,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 HOST = "0.0.0.0"
-PORT = int(os.getenv("PORT", "9088"))
+PORT = int(os.getenv("PORT", "80"))
+PUBLIC_PORT = int(os.getenv("PUBLIC_PORT", str(PORT)))
 MAX_ZOOM = int(os.getenv("MAX_ZOOM", "17"))
 MIN_LOD_PIXELS = int(os.getenv("MIN_LOD_PIXELS", "128"))
 MAX_LOD_PIXELS = int(os.getenv("MAX_LOD_PIXELS", "-1"))
+LIVE_POINT_REFRESH_SECONDS = int(os.getenv("LIVE_POINT_REFRESH_SECONDS", "5"))
+LIVE_POINT_CENTER_LAT = float(os.getenv("LIVE_POINT_CENTER_LAT", "43.238949"))
+LIVE_POINT_CENTER_LON = float(os.getenv("LIVE_POINT_CENTER_LON", "76.889709"))
+LIVE_POINT_RADIUS_DEGREES = float(os.getenv("LIVE_POINT_RADIUS_DEGREES", "0.01"))
+LIVE_POINT_PERIOD_SECONDS = int(os.getenv("LIVE_POINT_PERIOD_SECONDS", "600"))
 TILE_SOURCE_TEMPLATE = os.getenv(
     "TILE_SOURCE_TEMPLATE",
     "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
@@ -51,8 +57,14 @@ def get_base_url(headers):
 
     forwarded_proto = headers.get("X-Forwarded-Proto")
     proto = forwarded_proto.split(",")[0].strip() if forwarded_proto else "http"
-    host = headers.get("Host", f"localhost:{PORT}")
-    return f"{proto}://{host}"
+    forwarded_host = headers.get("X-Forwarded-Host")
+    raw_host = forwarded_host.split(",")[0].strip() if forwarded_host else headers.get("Host", "localhost")
+    host = raw_host.split(":")[0]
+
+    if PUBLIC_PORT in (80, 443):
+        return f"{proto}://{host}"
+
+    return f"{proto}://{host}:{PUBLIC_PORT}"
 
 
 def clamp_tile_x(x, z):
@@ -173,16 +185,68 @@ def build_tile_kml(base_url, z, x, y):
 
 def build_root_kml(base_url):
     href = f"{base_url}/kml/0/0/0.kml"
+    live_href = f"{base_url}/kml/live-point.kml"
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
-  <NetworkLink>
+  <Document>
     <name>Google Earth Topo</name>
-    <open>1</open>
-    <Link>
-      <href>{href}</href>
-      <viewRefreshMode>onRegion</viewRefreshMode>
-    </Link>
-  </NetworkLink>
+    <NetworkLink>
+      <name>OpenTopoMap Tiles</name>
+      <open>1</open>
+      <Link>
+        <href>{href}</href>
+        <viewRefreshMode>onRegion</viewRefreshMode>
+      </Link>
+    </NetworkLink>
+    <NetworkLink>
+      <name>Live Point</name>
+      <visibility>1</visibility>
+      <Link>
+        <href>{live_href}</href>
+        <refreshMode>onInterval</refreshMode>
+        <refreshInterval>{LIVE_POINT_REFRESH_SECONDS}</refreshInterval>
+      </Link>
+    </NetworkLink>
+  </Document>
+</kml>
+"""
+
+
+def current_live_point():
+    now = time.time()
+    angle = (now % LIVE_POINT_PERIOD_SECONDS) / LIVE_POINT_PERIOD_SECONDS * 2 * math.pi
+    lat = LIVE_POINT_CENTER_LAT + math.sin(angle) * LIVE_POINT_RADIUS_DEGREES
+    lon = LIVE_POINT_CENTER_LON + math.cos(angle) * LIVE_POINT_RADIUS_DEGREES
+    heading = (math.degrees(angle) + 90.0) % 360.0
+    return lat, lon, heading
+
+
+def build_live_point_kml():
+    lat, lon, heading = current_live_point()
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Live Point</name>
+    <Style id="live-point-style">
+      <IconStyle>
+        <color>ff00a5ff</color>
+        <scale>1.4</scale>
+        <heading>{heading}</heading>
+      </IconStyle>
+      <LabelStyle>
+        <scale>1.2</scale>
+      </LabelStyle>
+    </Style>
+    <Placemark>
+      <name>Tracked Object • LIVE</name>
+      <description>Updated {timestamp}</description>
+      <styleUrl>#live-point-style</styleUrl>
+      <Point>
+        <coordinates>{lon},{lat},0</coordinates>
+      </Point>
+    </Placemark>
+  </Document>
 </kml>
 """
 
@@ -218,6 +282,16 @@ class RequestHandler(BaseHTTPRequestHandler):
                     200,
                     body,
                     "application/vnd.google-earth.kml+xml; charset=utf-8",
+                )
+                return
+
+            if path == "/kml/live-point.kml":
+                body = build_live_point_kml().encode("utf-8")
+                status = self._send_bytes(
+                    200,
+                    body,
+                    "application/vnd.google-earth.kml+xml; charset=utf-8",
+                    extra_headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
                 )
                 return
 
