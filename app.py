@@ -1,6 +1,7 @@
 import math
 import os
 import re
+from collections import deque
 import threading
 import time
 import urllib.error
@@ -20,6 +21,7 @@ LIVE_POINT_CENTER_LAT = float(os.getenv("LIVE_POINT_CENTER_LAT", "43.238949"))
 LIVE_POINT_CENTER_LON = float(os.getenv("LIVE_POINT_CENTER_LON", "76.889709"))
 LIVE_POINT_RADIUS_DEGREES = float(os.getenv("LIVE_POINT_RADIUS_DEGREES", "0.01"))
 LIVE_POINT_PERIOD_SECONDS = int(os.getenv("LIVE_POINT_PERIOD_SECONDS", "600"))
+LIVE_TRACK_MAX_POINTS = int(os.getenv("LIVE_TRACK_MAX_POINTS", "300"))
 TILE_SOURCE_TEMPLATE = os.getenv(
     "TILE_SOURCE_TEMPLATE",
     "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
@@ -36,6 +38,8 @@ CLIENT_DISCONNECT_ERRORS = (
     ConnectionResetError,
 )
 LOG_LOCK = threading.Lock()
+LIVE_TRACK_LOCK = threading.Lock()
+LIVE_TRACK_POINTS = deque(maxlen=LIVE_TRACK_MAX_POINTS)
 
 
 def write_log_line(message):
@@ -186,6 +190,7 @@ def build_tile_kml(base_url, z, x, y):
 def build_root_kml(base_url):
     href = f"{base_url}/kml/0/0/0.kml"
     live_href = f"{base_url}/kml/live-point.kml"
+    track_href = f"{base_url}/kml/live-track.kml"
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
@@ -207,6 +212,15 @@ def build_root_kml(base_url):
         <refreshInterval>{LIVE_POINT_REFRESH_SECONDS}</refreshInterval>
       </Link>
     </NetworkLink>
+    <NetworkLink>
+      <name>Live Track</name>
+      <visibility>1</visibility>
+      <Link>
+        <href>{track_href}</href>
+        <refreshMode>onInterval</refreshMode>
+        <refreshInterval>{LIVE_POINT_REFRESH_SECONDS}</refreshInterval>
+      </Link>
+    </NetworkLink>
   </Document>
 </kml>
 """
@@ -221,8 +235,20 @@ def current_live_point():
     return lat, lon, heading
 
 
+def append_live_track_point(lat, lon):
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with LIVE_TRACK_LOCK:
+        LIVE_TRACK_POINTS.append((timestamp, lat, lon))
+
+
+def get_live_track_points():
+    with LIVE_TRACK_LOCK:
+        return list(LIVE_TRACK_POINTS)
+
+
 def build_live_point_kml():
     lat, lon, heading = current_live_point()
+    append_live_track_point(lat, lon)
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -245,6 +271,39 @@ def build_live_point_kml():
       <Point>
         <coordinates>{lon},{lat},0</coordinates>
       </Point>
+    </Placemark>
+  </Document>
+</kml>
+"""
+
+
+def build_live_track_kml():
+    track_points = get_live_track_points()
+    if not track_points:
+        lat, lon, _ = current_live_point()
+        append_live_track_point(lat, lon)
+        track_points = get_live_track_points()
+
+    coordinates = " ".join(f"{lon},{lat},0" for _, lat, lon in track_points)
+    last_timestamp = track_points[-1][0]
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Live Track</name>
+    <Style id="live-track-style">
+      <LineStyle>
+        <color>ff00ffff</color>
+        <width>4</width>
+      </LineStyle>
+    </Style>
+    <Placemark>
+      <name>Tracked Path</name>
+      <description>Points: {len(track_points)}. Updated {last_timestamp}</description>
+      <styleUrl>#live-track-style</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <coordinates>{coordinates}</coordinates>
+      </LineString>
     </Placemark>
   </Document>
 </kml>
@@ -287,6 +346,16 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             if path == "/kml/live-point.kml":
                 body = build_live_point_kml().encode("utf-8")
+                status = self._send_bytes(
+                    200,
+                    body,
+                    "application/vnd.google-earth.kml+xml; charset=utf-8",
+                    extra_headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+                )
+                return
+
+            if path == "/kml/live-track.kml":
+                body = build_live_track_kml().encode("utf-8")
                 status = self._send_bytes(
                     200,
                     body,

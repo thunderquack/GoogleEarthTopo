@@ -56,6 +56,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 - `LIVE_POINT_CENTER_LON` - долгота центра тестового движения, по умолчанию `76.889709`
 - `LIVE_POINT_RADIUS_DEGREES` - радиус движения в градусах, по умолчанию `0.01`
 - `LIVE_POINT_PERIOD_SECONDS` - полный период круга для тестовой точки, по умолчанию `600`
+- `LIVE_TRACK_MAX_POINTS` - сколько последних положений хранить в тестовом live-треке, по умолчанию `300`
 
 ## Как использовать в Google Earth
 
@@ -69,4 +70,4 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 - Адрес bind не настраивается: сервер всегда слушает `0.0.0.0`.
 - По умолчанию используется OpenTopoMap. Официальная схема у сервиса публикуется как `https://{a|b|c}.tile.opentopomap.org/{z}/{x}/{y}.png`; в этом прототипе выбран сервер `a`.
 - В docker-конфигурации источник и кэш тайлов находятся в `nginx proxy_cache`, поэтому `TILE_SOURCE_TEMPLATE` там специально не дублируется.
-- В `root.kml` автоматически подключается тестовая медленно движущаяся точка, чтобы можно было проверить live-обновление в Google Earth.
+- В `root.kml` автоматически подключаются тестовая медленно движущаяся точка и ее live-трек, чтобы можно было проверить обновление в Google Earth.
