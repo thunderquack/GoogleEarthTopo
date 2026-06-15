@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -107,9 +108,11 @@ def append_jsonl(path: Path, payload: dict) -> None:
 
 def append_log(path: Path, message: str) -> None:
     timestamp = utc_now()
+    formatted = f"{timestamp} {message}"
+    print(formatted, file=sys.stdout, flush=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(f"{timestamp} {message}\n")
+        handle.write(f"{formatted}\n")
 
 
 def is_unparsed_candidate(line: str) -> bool:
