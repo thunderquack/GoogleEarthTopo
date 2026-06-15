@@ -2,6 +2,21 @@ services:
   google-earth-topo:
     environment:
       PUBLIC_PORT: ${APP_PORT:-9088}
+    volumes:
+      - ./data-dev:/data
+
+  dmr-decoder:
+    volumes:
+      - ./data-dev:/data
+
+  dmr-parser:
+    volumes:
+      - ./data-dev:/data
+
   nginx:
     ports:
       - "${APP_PORT:-9088}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./data-dev/nginx-cache:/var/cache/nginx
+      - ./data-dev/nginx-logs:/var/log/nginx
