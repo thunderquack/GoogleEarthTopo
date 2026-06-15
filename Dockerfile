@@ -7,7 +7,7 @@ COPY app.py /app/app.py
 ENV PORT=80
 ENV LOG_FILE=/data/server.log
 
-RUN mkdir -p /data
+RUN mkdir -p /data/dmr
 
 EXPOSE 80
 

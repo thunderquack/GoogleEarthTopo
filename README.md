@@ -1,20 +1,61 @@
 # Google Earth Topo
 
-Минимальный Python-сервер, который:
+Минимальный стек для Google Earth, который:
 
 - проксирует XYZ-тайлы OpenTopoMap через `/tiles/{z}/{x}/{y}.png`
-- отдает KML SuperOverlay через `/kml/...`, чтобы Google Earth мог загружать тайлы не зная про схему XYZ
+- отдает KML SuperOverlay через `/kml/...`, чтобы Google Earth мог загружать тайлы без знания XYZ-схемы
+- принимает реальные координаты из DMR через `rtl-sdr -> DSD-FME -> parser`
+- рисует live-точку и live-трек по последнему декодированному GPS fix
 - в docker-режиме работает вместе с `nginx`, который кэширует тайлы на диске
 
-## Запуск
+## Архитектура
 
-```bash
-python app.py
+```text
+rtl-sdr -> dmr-decoder (DSD-FME) -> /data/dmr/raw.log
+                                     |
+                                     v
+                               dmr-parser
+                         -> /data/dmr/latest.json
+                         -> /data/dmr/history.jsonl
+                                     |
+                                     v
+                           google-earth-topo (Python)
+                         -> /kml/live-point.kml
+                         -> /kml/live-track.kml
+                         -> /api/live-point.json
+                         -> /api/live-track.json
 ```
 
-По умолчанию сервер стартует на `http://localhost`.
+## Сервисы
 
-В standalone-режиме Python сам обрабатывает `/tiles/...` и может ходить в upstream тайлов напрямую.
+- `google-earth-topo` — Python-сервер с KML и debug JSON endpoints
+- `dmr-decoder` — контейнер с `DSD-FME`, читает `rtl-sdr` на `430.300 MHz`
+- `dmr-parser` — парсит `DSD-FME` лог и сохраняет последнюю точку и историю
+- `nginx` — reverse proxy и tile cache
+
+## Требования
+
+- Linux-хост с Docker Compose
+- подключенный `rtl-sdr`
+- внешняя docker-сеть `pidor-net`
+
+Проверка донгла на хосте:
+
+```bash
+rtl_test -t
+```
+
+Если устройство занято DVB-драйвером:
+
+```bash
+sudo modprobe -r dvb_usb_rtl28xxu rtl2832 rtl2830
+```
+
+Чтобы отключение сохранилось:
+
+```bash
+echo "blacklist dvb_usb_rtl28xxu" | sudo tee /etc/modprobe.d/blacklist-rtl-sdr.conf
+```
 
 ## Запуск через Docker Compose
 
@@ -23,7 +64,6 @@ docker compose up --build -d
 ```
 
 Основной `docker-compose.yml` не публикует порты наружу. Сервис слушает внутри контейнера `80` и рассчитан на reverse proxy или общую docker-сеть.
-В docker-режиме тайлы `/tiles/...` забирает и кэширует `nginx`; Python в этой схеме нужен для `/kml/...` и других будущих KML-слоев.
 
 ## Запуск через Docker Compose для разработки
 
@@ -31,43 +71,85 @@ docker compose up --build -d
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 ```
 
-В dev-режиме сервис будет доступен на `http://localhost:9088/kml/root.kml`.
-Внешний порт для dev задается через `APP_PORT`, по умолчанию `9088`.
-
-Логи запросов будут сохраняться в `./data/server.log`.
-Кэш тайлов `nginx` будет храниться в `./data/nginx-cache`, а его логи в `./data/nginx-logs`.
+В dev-режиме сервис будет доступен на `http://localhost:9088`.
+Внешний порт задается через `APP_PORT`, по умолчанию `9088`.
 
 ## Полезные URL
 
-- Корневой KML: `http://localhost:9088/kml/root.kml`
-- Пример тайла: `http://localhost:9088/tiles/0/0/0.png`
+- `http://localhost:9088/` — service info
+- `http://localhost:9088/kml/root.kml` — корневой KML
+- `http://localhost:9088/kml/live-point.kml` — live-точка
+- `http://localhost:9088/kml/live-track.kml` — live-трек
+- `http://localhost:9088/api/live-point.json` — последняя точка
+- `http://localhost:9088/api/live-track.json` — последние точки трека
+- `http://localhost:9088/tiles/0/0/0.png` — пример тайла
+
+## Данные и логи
+
+- `./data/server.log` — лог Python-сервиса
+- `./data/dmr/raw.log` — сырой вывод `DSD-FME`
+- `./data/dmr/parser.log` — лог parser-сервиса
+- `./data/dmr/latest.json` — последний валидный GPS fix
+- `./data/dmr/history.jsonl` — история GPS fix
+- `./data/nginx-cache` — кэш тайлов `nginx`
+- `./data/nginx-logs` — логи `nginx`
 
 ## Переменные окружения
 
-- `PORT` - порт, на котором слушает standalone Python, по умолчанию `80`
-- `PUBLIC_PORT` - внешний порт, который используется при генерации абсолютных KML URL, по умолчанию равен `PORT`
-- `BASE_URL` - внешний URL сервера; если не задан, определяется из заголовков запроса
-- `TILE_SOURCE_TEMPLATE` - шаблон источника тайлов для standalone-режима Python, по умолчанию `https://a.tile.opentopomap.org/{z}/{x}/{y}.png`
-- `MAX_ZOOM` - максимальная глубина KML-дерева, по умолчанию `17`
-- `MIN_LOD_PIXELS` - порог детализации для KML Region, по умолчанию `128`
-- `MAX_LOD_PIXELS` - верхний порог детализации для KML Region, по умолчанию `-1`
-- `LIVE_POINT_REFRESH_SECONDS` - как часто Google Earth запрашивает live-точку, по умолчанию `5`
-- `LIVE_POINT_CENTER_LAT` - широта центра тестового движения, по умолчанию `43.238949`
-- `LIVE_POINT_CENTER_LON` - долгота центра тестового движения, по умолчанию `76.889709`
-- `LIVE_POINT_RADIUS_DEGREES` - радиус движения в градусах, по умолчанию `0.01`
-- `LIVE_POINT_PERIOD_SECONDS` - полный период круга для тестовой точки, по умолчанию `600`
-- `LIVE_TRACK_MAX_POINTS` - сколько последних положений хранить в тестовом live-треке, по умолчанию `300`
+### KML/Python
 
-## Как использовать в Google Earth
+- `PORT` — порт standalone Python, по умолчанию `80`
+- `PUBLIC_PORT` — внешний порт для абсолютных KML URL, по умолчанию равен `PORT`
+- `BASE_URL` — внешний URL сервера; если не задан, определяется из заголовков запроса
+- `TILE_SOURCE_TEMPLATE` — upstream для standalone tile proxy, по умолчанию `https://a.tile.opentopomap.org/{z}/{x}/{y}.png`
+- `MAX_ZOOM` — максимальная глубина KML-дерева, по умолчанию `17`
+- `MIN_LOD_PIXELS` — порог детализации KML Region, по умолчанию `128`
+- `MAX_LOD_PIXELS` — верхний порог детализации KML Region, по умолчанию `-1`
+- `LIVE_POINT_REFRESH_SECONDS` — интервал обновления live KML, по умолчанию `5`
+- `LIVE_TRACK_MAX_POINTS` — сколько последних точек отдавать в track, по умолчанию `300`
+- `DMR_LATEST_JSON` — путь до последней точки, по умолчанию `/data/dmr/latest.json`
+- `DMR_HISTORY_JSONL` — путь до истории, по умолчанию `/data/dmr/history.jsonl`
 
-1. Запустить сервер.
-2. Открыть в Google Earth ссылку `http://localhost/kml/root.kml` для standalone на порту `80`, `http://localhost:9088/kml/root.kml` для dev compose или адрес своего reverse proxy для обычного Docker Compose.
-3. Google Earth начнет загружать KML-узлы и соответствующие им PNG-тайлы через ваш сервер.
+### DMR decoder/parser
 
-## Замечания
+- `DMR_RTL_INPUT` — строка RTL-входа для `DSD-FME`, по умолчанию `rtl:0:430.300M:30:0:12:0:2`
+- `DMR_FREQUENCY_HZ` — частота для JSON-событий, по умолчанию `430300000`
+- `DMR_EXTRA_ARGS` — дополнительные флаги для `dsd-fme`, например `-xr`
+- `DMR_CONTEXT_TTL_SECONDS` — сколько держать `Src/Dst/Slot/CC` между строками, по умолчанию `30`
+- `DMR_RAW_LOG` — путь до сырого лога, по умолчанию `/data/dmr/raw.log`
+- `DMR_PARSER_LOG` — путь до лога parser, по умолчанию `/data/dmr/parser.log`
 
-- Сервер намеренно без фреймворков, чтобы первый запуск был простым.
-- Адрес bind не настраивается: сервер всегда слушает `0.0.0.0`.
-- По умолчанию используется OpenTopoMap. Официальная схема у сервиса публикуется как `https://{a|b|c}.tile.opentopomap.org/{z}/{x}/{y}.png`; в этом прототипе выбран сервер `a`.
-- В docker-конфигурации источник и кэш тайлов находятся в `nginx proxy_cache`, поэтому `TILE_SOURCE_TEMPLATE` там специально не дублируется.
-- В `root.kml` автоматически подключаются тестовая медленно движущаяся точка и ее live-трек, чтобы можно было проверить обновление в Google Earth.
+## Отладка
+
+Лог декодера:
+
+```bash
+docker compose logs -f dmr-decoder
+```
+
+Лог parser:
+
+```bash
+docker compose logs -f dmr-parser
+```
+
+Если DMR инвертирован, можно временно добавить:
+
+```bash
+DMR_EXTRA_ARGS=-xr
+```
+
+в `.env` или в окружение перед `docker compose up`.
+
+## Как это работает в Google Earth
+
+1. Запустить стек.
+2. Открыть `http://localhost:9088/kml/root.kml` в dev-режиме или адрес reverse proxy в обычном compose.
+3. Google Earth загрузит tile overlay, live-точку и live-трек.
+4. Пока GPS fix еще не декодирован, live KML останется пустым, а `/api/live-point.json` будет отдавать `404 No live fix yet`.
+
+## Ограничения первой версии
+
+- parser сейчас рассчитывает на текстовые строки `DSD-FME`, в которых координаты уже видны как `Lat/Lon`
+- если `DSD-FME` покажет только hex payload, parser запишет `unparsed GPS candidate` в `parser.log`, но не декодирует vendor-specific формат
+- Windows-режим с локальным USB и без Linux-хоста не поддерживается

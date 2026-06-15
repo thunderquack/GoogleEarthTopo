@@ -9,6 +9,12 @@ GET {{baseUrl}}/kml/root.kml
 ### Live point KML
 GET {{baseUrl}}/kml/live-point.kml
 
+### Live point JSON
+GET {{baseUrl}}/api/live-point.json
+
+### Live track JSON
+GET {{baseUrl}}/api/live-track.json
+
 ### Root tile KML
 GET {{baseUrl}}/kml/0/0/0.kml
 

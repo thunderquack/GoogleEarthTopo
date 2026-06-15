@@ -10,6 +10,9 @@ services:
       PUBLIC_PORT: ${APP_PORT:-80}
       MAX_ZOOM: 17
       LOG_FILE: /data/server.log
+      DMR_LATEST_JSON: /data/dmr/latest.json
+      DMR_HISTORY_JSONL: /data/dmr/history.jsonl
+      LIVE_TRACK_MAX_POINTS: ${LIVE_TRACK_MAX_POINTS:-300}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/kml/root.kml', timeout=5)"]
       interval: 10s
@@ -22,6 +25,54 @@ services:
       pidor-net:
         aliases:
           - google-earth-topo.pidor.local
+
+  dmr-decoder:
+    build:
+      context: .
+      dockerfile: dmr-decoder/Dockerfile
+    container_name: dmr-decoder
+    restart: unless-stopped
+    devices:
+      - "/dev/bus/usb:/dev/bus/usb"
+    command:
+      - "-fs"
+      - "-i"
+      - "${DMR_RTL_INPUT:-rtl:0:430.300M:30:0:12:0:2}"
+      - "-Z"
+      - "-N"
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      DMR_RAW_LOG: /data/dmr/raw.log
+      DMR_EXTRA_ARGS: ${DMR_EXTRA_ARGS:-}
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'dsd-fme' >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    volumes:
+      - ./data:/data
+
+  dmr-parser:
+    build:
+      context: .
+      dockerfile: dmr-parser/Dockerfile
+    container_name: dmr-parser
+    restart: unless-stopped
+    depends_on:
+      dmr-decoder:
+        condition: service_started
+    environment:
+      DMR_PROTOCOL: DMR
+      DMR_FREQUENCY_HZ: ${DMR_FREQUENCY_HZ:-430300000}
+      DMR_RAW_LOG: /data/dmr/raw.log
+      DMR_LATEST_JSON: /data/dmr/latest.json
+      DMR_HISTORY_JSONL: /data/dmr/history.jsonl
+      DMR_PARSER_LOG: /data/dmr/parser.log
+      DMR_CONTEXT_TTL_SECONDS: ${DMR_CONTEXT_TTL_SECONDS:-30}
+      LIVE_TRACK_MAX_POINTS: ${LIVE_TRACK_MAX_POINTS:-300}
+    volumes:
+      - ./data:/data
 
   nginx:
     image: nginx:alpine

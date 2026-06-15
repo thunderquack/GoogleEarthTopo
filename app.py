@@ -1,13 +1,14 @@
+import json
 import math
 import os
 import re
-from collections import deque
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 
 HOST = "0.0.0.0"
@@ -17,10 +18,6 @@ MAX_ZOOM = int(os.getenv("MAX_ZOOM", "17"))
 MIN_LOD_PIXELS = int(os.getenv("MIN_LOD_PIXELS", "128"))
 MAX_LOD_PIXELS = int(os.getenv("MAX_LOD_PIXELS", "-1"))
 LIVE_POINT_REFRESH_SECONDS = int(os.getenv("LIVE_POINT_REFRESH_SECONDS", "5"))
-LIVE_POINT_CENTER_LAT = float(os.getenv("LIVE_POINT_CENTER_LAT", "43.238949"))
-LIVE_POINT_CENTER_LON = float(os.getenv("LIVE_POINT_CENTER_LON", "76.889709"))
-LIVE_POINT_RADIUS_DEGREES = float(os.getenv("LIVE_POINT_RADIUS_DEGREES", "0.01"))
-LIVE_POINT_PERIOD_SECONDS = int(os.getenv("LIVE_POINT_PERIOD_SECONDS", "600"))
 LIVE_TRACK_MAX_POINTS = int(os.getenv("LIVE_TRACK_MAX_POINTS", "300"))
 TILE_SOURCE_TEMPLATE = os.getenv(
     "TILE_SOURCE_TEMPLATE",
@@ -28,18 +25,18 @@ TILE_SOURCE_TEMPLATE = os.getenv(
 )
 USER_AGENT = os.getenv(
     "UPSTREAM_USER_AGENT",
-    "GoogleEarthTopo/0.1 (+https://localhost)",
+    "GoogleEarthTopo/0.2 (+https://localhost)",
 )
 LOG_REQUESTS = os.getenv("LOG_REQUESTS", "1") != "0"
 LOG_FILE = os.getenv("LOG_FILE", "server.log").strip()
+DMR_LATEST_JSON = Path(os.getenv("DMR_LATEST_JSON", "/data/dmr/latest.json"))
+DMR_HISTORY_JSONL = Path(os.getenv("DMR_HISTORY_JSONL", "/data/dmr/history.jsonl"))
 CLIENT_DISCONNECT_ERRORS = (
     BrokenPipeError,
     ConnectionAbortedError,
     ConnectionResetError,
 )
 LOG_LOCK = threading.Lock()
-LIVE_TRACK_LOCK = threading.Lock()
-LIVE_TRACK_POINTS = deque(maxlen=LIVE_TRACK_MAX_POINTS)
 
 
 def write_log_line(message):
@@ -149,6 +146,42 @@ def build_network_links(base_url, z, x, y):
     return "\n".join(links)
 
 
+def load_latest_fix():
+    if not DMR_LATEST_JSON.exists():
+        return None
+
+    try:
+        return json.loads(DMR_LATEST_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        write_log_line(f"Failed to read latest fix from {DMR_LATEST_JSON}: {exc}")
+        return None
+
+
+def load_track_points():
+    if not DMR_HISTORY_JSONL.exists():
+        return []
+
+    points = []
+    try:
+        with DMR_HISTORY_JSONL.open("r", encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError as exc:
+        write_log_line(f"Failed to read track history from {DMR_HISTORY_JSONL}: {exc}")
+        return []
+
+    for raw_line in lines[-LIVE_TRACK_MAX_POINTS:]:
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "latitude" in payload and "longitude" in payload:
+            points.append(payload)
+    return points
+
+
 def build_tile_kml(base_url, z, x, y):
     bounds = tile_bounds(z, x, y)
     tile_url = f"{base_url}/tiles/{z}/{x}/{y}.png"
@@ -226,30 +259,24 @@ def build_root_kml(base_url):
 """
 
 
-def current_live_point():
-    now = time.time()
-    angle = (now % LIVE_POINT_PERIOD_SECONDS) / LIVE_POINT_PERIOD_SECONDS * 2 * math.pi
-    lat = LIVE_POINT_CENTER_LAT + math.sin(angle) * LIVE_POINT_RADIUS_DEGREES
-    lon = LIVE_POINT_CENTER_LON + math.cos(angle) * LIVE_POINT_RADIUS_DEGREES
-    heading = (math.degrees(angle) + 90.0) % 360.0
-    return lat, lon, heading
-
-
-def append_live_track_point(lat, lon):
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    with LIVE_TRACK_LOCK:
-        LIVE_TRACK_POINTS.append((timestamp, lat, lon))
-
-
-def get_live_track_points():
-    with LIVE_TRACK_LOCK:
-        return list(LIVE_TRACK_POINTS)
-
-
 def build_live_point_kml():
-    lat, lon, heading = current_live_point()
-    append_live_track_point(lat, lon)
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    fix = load_latest_fix()
+    if not fix:
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Live Point</name>
+    <description>No live fix yet</description>
+  </Document>
+</kml>
+"""
+
+    heading = fix.get("heading_deg") or 0
+    description_lines = [
+        f"Updated {fix.get('received_at', 'unknown')}",
+        f"Source: {fix.get('source_id')}",
+        f"Destination: {fix.get('destination_id')}",
+    ]
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
@@ -266,10 +293,10 @@ def build_live_point_kml():
     </Style>
     <Placemark>
       <name>Tracked Object • LIVE</name>
-      <description>Updated {timestamp}</description>
+      <description>{"&#10;".join(description_lines)}</description>
       <styleUrl>#live-point-style</styleUrl>
       <Point>
-        <coordinates>{lon},{lat},0</coordinates>
+        <coordinates>{fix["longitude"]},{fix["latitude"]},0</coordinates>
       </Point>
     </Placemark>
   </Document>
@@ -278,14 +305,19 @@ def build_live_point_kml():
 
 
 def build_live_track_kml():
-    track_points = get_live_track_points()
+    track_points = load_track_points()
     if not track_points:
-        lat, lon, _ = current_live_point()
-        append_live_track_point(lat, lon)
-        track_points = get_live_track_points()
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Live Track</name>
+    <description>No live fix yet</description>
+  </Document>
+</kml>
+"""
 
-    coordinates = " ".join(f"{lon},{lat},0" for _, lat, lon in track_points)
-    last_timestamp = track_points[-1][0]
+    coordinates = " ".join(f"{point['longitude']},{point['latitude']},0" for point in track_points)
+    last_timestamp = track_points[-1].get("received_at", "unknown")
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
@@ -311,7 +343,7 @@ def build_live_track_kml():
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "GoogleEarthTopo/0.1"
+    server_version = "GoogleEarthTopo/0.2"
 
     def do_GET(self):
         started_at = time.time()
@@ -327,6 +359,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                         "{\n"
                         '  "service": "google-earth-topo",\n'
                         '  "kml": "/kml/root.kml",\n'
+                        '  "livePoint": "/kml/live-point.kml",\n'
+                        '  "liveTrack": "/kml/live-track.kml",\n'
+                        '  "livePointJson": "/api/live-point.json",\n'
+                        '  "liveTrackJson": "/api/live-track.json",\n'
                         '  "tileExample": "/tiles/0/0/0.png",\n'
                         f'  "maxZoom": {MAX_ZOOM}\n'
                         "}\n"
@@ -362,6 +398,14 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "application/vnd.google-earth.kml+xml; charset=utf-8",
                     extra_headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
                 )
+                return
+
+            if path == "/api/live-point.json":
+                status = self._handle_live_point_json()
+                return
+
+            if path == "/api/live-track.json":
+                status = self._handle_live_track_json()
                 return
 
             kml_match = re.fullmatch(r"/kml/(\d+)/(\d+)/(\d+)\.kml", path)
@@ -433,6 +477,28 @@ class RequestHandler(BaseHTTPRequestHandler):
             return self._send_text(exc.code, f"Upstream tile error: {exc.reason}")
         except urllib.error.URLError as exc:
             return self._send_text(502, f"Upstream tile connection error: {exc.reason}")
+
+    def _handle_live_point_json(self):
+        fix = load_latest_fix()
+        if not fix:
+            return self._send_text(404, "No live fix yet")
+        return self._send_bytes(
+            200,
+            (json.dumps(fix, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+            "application/json; charset=utf-8",
+            extra_headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
+
+    def _handle_live_track_json(self):
+        track_points = load_track_points()
+        if not track_points:
+            return self._send_text(404, "No live fix yet")
+        return self._send_bytes(
+            200,
+            (json.dumps(track_points, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+            "application/json; charset=utf-8",
+            extra_headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
 
     def _send_text(self, status, text):
         return self._send_bytes(status, text.encode("utf-8"), "text/plain; charset=utf-8")
