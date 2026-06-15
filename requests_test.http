@@ -1,0 +1,17 @@
+@baseUrl = http://localhost:9088
+
+### Service info
+GET {{baseUrl}}/
+
+### Root KML
+GET {{baseUrl}}/kml/root.kml
+
+### Live point KML
+GET {{baseUrl}}/kml/live-point.kml
+
+### Root tile KML
+GET {{baseUrl}}/kml/0/0/0.kml
+
+### Example tile
+GET {{baseUrl}}/tiles/0/0/0.png
+
