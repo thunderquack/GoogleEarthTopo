@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     git \
     libcodec2-dev \
     libfftw3-dev \
+    liblapack-dev \
     libitpp-dev \
     libncurses-dev \
     libpulse-dev \
@@ -19,6 +20,17 @@ RUN apt-get update && apt-get install -y \
     libusb-1.0-0-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch ambe_tones https://github.com/lwvmobile/mbelib.git /src/mbelib
+
+WORKDIR /src/mbelib
+
+RUN mkdir build \
+    && cd build \
+    && cmake .. \
+    && make -j"$(nproc)" \
+    && make install \
+    && ldconfig
 
 RUN git clone --depth 1 --branch audio_work https://github.com/lwvmobile/dsd-fme.git /src/dsd-fme
 
@@ -54,7 +66,8 @@ COPY --from=build /usr/local/ /usr/local/
 COPY dmr-decoder/entrypoint.sh /usr/local/bin/dmr-decoder-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/dmr-decoder-entrypoint.sh \
-    && mkdir -p /data/dmr
+    && mkdir -p /data/dmr \
+    && ldconfig
 
 WORKDIR /data
 
