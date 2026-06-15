@@ -38,11 +38,11 @@ RUN apt-get update && apt-get install -y \
     bash \
     ca-certificates \
     libcodec2-1.2 \
-    libfftw3-3 \
+    libfftw3-double3 \
     libitpp8v5 \
     libncurses6 \
     libpulse0 \
-    librtlsdr0 \
+    librtlsdr2 \
     libsamplerate0 \
     libsndfile1 \
     libssl3 \
